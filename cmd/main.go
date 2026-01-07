@@ -28,10 +28,14 @@ func main() {
 	if err != nil {
 		logger.WithError(err).Fatal("failed to initialize storage")
 	}
-	h := handler.NewHandler(logger)
+	if err := storage.CreateTables(context.Background()); err != nil {
+		logger.Fatal("failed to create tables: ", err)
+	}
+
+	h := handler.NewHandler(logger) // Передавать так же экземпляр service
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/incidents", h.IncidentsHandler)
+	mux.HandleFunc("/api/v1/incidents", h.IncidentsHandler)
 
 	server := http.Server{
 		Addr:    ":8080",

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"geo-notifications/internal/config"
+	"geo-notifications/internal/model"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -16,6 +17,20 @@ type PostgresRepo struct {
 }
 type RedisCache struct {
 	cache *redis.Client
+}
+
+type IncidentFilter struct {
+	Page     int
+	PageSize int
+	Active   *bool
+}
+
+type IncidentRepository interface {
+	Create(in *model.Incident) (int64, error)
+	GetByID(id int64) (*model.Incident, error)
+	List(filter IncidentFilter) ([]model.Incident, int, error)
+	Update(in *model.Incident) error
+	Delete(id int64) error
 }
 
 type Storage struct {
@@ -80,6 +95,49 @@ func NewStorage(dbURL string, redisCfg config.RedisConfig) (*Storage, error) {
 		repo:  postgres,
 		cache: redis,
 	}, nil
+}
+
+func (s *Storage) CreateTables(ctx context.Context) error {
+	query := `
+			CREATE TABLE IF NOT EXISTS incidents (
+				id          SERIAL PRIMARY KEY,
+				title       TEXT        NOT NULL,
+				description TEXT        NOT NULL,
+				latitude    DOUBLE PRECISION NOT NULL,
+				longitude   DOUBLE PRECISION NOT NULL,
+				radius_m    INTEGER     NOT NULL,
+				active      BOOLEAN     NOT NULL DEFAULT TRUE,
+				created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
+			`
+	_, err := s.repo.db.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("create table incidents: %w", err)
+	}
+	return nil
+}
+
+func (s *Storage) Create(ctx context.Context, in *model.Incident) (int64, error) {
+	query := `
+	INSERT INTO incidents (title, description, latitude, longitude, radius_m, active)
+	VALUES ($1, $2, $3, $4, $5)
+	RETURNING id, created_at, updated_at;
+	`
+
+	row := s.repo.db.QueryRowContext(ctx, query,
+		in.Title,
+		in.Description,
+		in.Latitude,
+		in.Longitude,
+		in.RadiusM,
+		in.Active,
+	)
+
+	if err := row.Scan(&in.ID, &in.CreatedAt, &in.UpdatedAt); err != nil {
+		return 0, err
+	}
+	return in.ID, nil
 }
 
 func (s *Storage) Close() error {
