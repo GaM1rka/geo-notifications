@@ -17,9 +17,16 @@ import (
 func main() {
 	logger := logrus.New()
 	dbURL := config.GetDBURL()
-	db, err := repository.NewStorage(dbURL)
+	redisAddr := config.GetRedisConfig()
+	if dbURL == "" {
+		logger.Fatal("Database URL is empty")
+	}
+	if redisAddr.Addr == "" {
+		logger.Fatal("Redis address is empty")
+	}
+	storage, err := repository.NewStorage(dbURL, redisAddr)
 	if err != nil {
-		logger.Fatal("Error while initialization database", err)
+		logger.WithError(err).Fatal("failed to initialize storage")
 	}
 	h := handler.NewHandler(logger)
 
@@ -33,7 +40,7 @@ func main() {
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Server ListenAndServe error", err)
+			logger.WithError(err).Fatal("Server ListenAndServe error")
 		}
 	}()
 
@@ -49,13 +56,13 @@ func main() {
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		logger.Warn("Server forced to shutdown", err)
+		logger.WithError(err).Warn("Server forced to shutdown")
 	} else {
 		logger.Info("Server stopped gracefully")
 	}
 
-	if err := db.Close(); err != nil {
-		logger.Warn("Database close error", err)
+	if err := storage.Close(); err != nil {
+		logger.WithError(err).Warn("Database close error")
 	} else {
 		logger.Info("Database connection closed")
 	}
