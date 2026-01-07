@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"geo-notifications/internal/handler"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -24,4 +29,21 @@ func main() {
 			logger.Fatal("Server ListenAndServe error", err)
 		}
 	}()
+
+	logger.Info("Server started on :8080 port")
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	<-quit
+
+	logger.Info("Shutdown signal received")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Warn("Server forced to shutdown", err)
+	} else {
+		logger.Info("Server stopped gracefully")
+	}
 }
