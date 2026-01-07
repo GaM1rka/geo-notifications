@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"geo-notifications/internal/config"
 	"geo-notifications/internal/handler"
+	"geo-notifications/internal/repository"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +16,11 @@ import (
 
 func main() {
 	logger := logrus.New()
+	dbURL := config.GetDBURL()
+	db, err := repository.NewStorage(dbURL)
+	if err != nil {
+		logger.Fatal("Error while initialization database", err)
+	}
 	h := handler.NewHandler(logger)
 
 	mux := http.NewServeMux()
@@ -45,5 +52,11 @@ func main() {
 		logger.Warn("Server forced to shutdown", err)
 	} else {
 		logger.Info("Server stopped gracefully")
+	}
+
+	if err := db.Close(); err != nil {
+		logger.Warn("Database close error", err)
+	} else {
+		logger.Info("Database connection closed")
 	}
 }

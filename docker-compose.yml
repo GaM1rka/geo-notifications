@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    env_file:
+      - .env
+    container_name: geo-notifications-app
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/geo?sslmode=disable
+      REDIS_ADDR: redis:6379
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: geo-postgres
+    environment:
+      POSTGRES_DB: geo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: geo-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  webhook-mock:
+    image: golang:1.23-alpine
+    container_name: geo-webhook-mock
+    working_dir: /app
+    volumes:
+      - ./webhook-mock:/app
+    command: ["go", "run", "main.go"]
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
