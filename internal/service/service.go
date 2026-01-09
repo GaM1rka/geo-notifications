@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+
 	"geo-notifications/internal/model"
 	"geo-notifications/internal/repository"
 
@@ -9,43 +11,88 @@ import (
 )
 
 type IncidentService struct {
-	storage repository.Storage
+	storage *repository.Storage
 	logger  *logrus.Logger
 }
 
-func NewIncidentService(storage repository.Storage, logger *logrus.Logger) *IncidentService {
+func NewIncidentService(storage *repository.Storage, logger *logrus.Logger) *IncidentService {
 	return &IncidentService{
 		storage: storage,
 		logger:  logger,
 	}
 }
 
-func (is *IncidentService) CreateIncident(req *model.Incident) error {
+func (is *IncidentService) CreateIncident(ctx context.Context, req *model.Incident) error {
 	if req.Title == "" {
-		is.logger.Error("Required incident title in CreateIncident request")
+		return fmt.Errorf("title is required")
 	}
 	if req.RadiusM < 0 {
-		is.logger.Error("Incident radius need to be positive in CreateIncident request")
+		return fmt.Errorf("radius must be positive")
 	}
 
-	_, err := is.storage.Create(context.Background(), req)
+	req.Active = true
+
+	_, err := is.storage.Create(ctx, req)
 	if err != nil {
-		is.logger.Warn("Failed to create incident")
+		is.logger.WithError(err).Warn("failed to create incident")
 		return err
 	}
 	return nil
 }
 
-func (is *IncidentService) GetItemsList(page, pageSize int) ([]model.Incident, error) {
-	if page < 0 || pageSize < 0 {
-		is.logger.Error("Invalid pagination parameters")
+func (is *IncidentService) GetItemsList(ctx context.Context, page, pageSize int) ([]model.Incident, error) {
+	if page < 1 || pageSize < 1 {
+		return nil, fmt.Errorf("invalid pagination parameters: page=%d, pageSize=%d", page, pageSize)
 	}
 
-	results, err := is.storage.GetList(context.Background(), page, pageSize)
+	results, err := is.storage.GetList(ctx, page, pageSize)
 	if err != nil {
-		is.logger.WithError(err).Info("Error while getting list of incidents")
+		is.logger.WithError(err).Info("error while getting list of incidents")
 		return nil, err
 	}
 
 	return results, nil
+}
+
+func (is *IncidentService) GetIncidentByID(ctx context.Context, id int64) (*model.Incident, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("invalid id: %d", id)
+	}
+
+	incident, err := is.storage.GetByID(ctx, id)
+	if err != nil {
+		is.logger.WithError(err).Error("error getting incident by id")
+		return nil, err
+	}
+	return incident, nil
+}
+
+func (is *IncidentService) UpdateIncident(ctx context.Context, in *model.Incident) error {
+	if in.ID <= 0 {
+		return fmt.Errorf("invalid id: %d", in.ID)
+	}
+	if in.Title == "" {
+		return fmt.Errorf("title is required")
+	}
+	if in.RadiusM < 0 {
+		return fmt.Errorf("radius must be positive")
+	}
+
+	if err := is.storage.Update(ctx, in); err != nil {
+		is.logger.WithError(err).Error("failed to update incident")
+		return err
+	}
+	return nil
+}
+
+func (is *IncidentService) DeactivateIncident(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return fmt.Errorf("invalid id: %d", id)
+	}
+
+	if err := is.storage.Deactivate(ctx, id); err != nil {
+		is.logger.WithError(err).Error("failed to deactivate incident")
+		return err
+	}
+	return nil
 }
