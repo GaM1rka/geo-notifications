@@ -20,7 +20,7 @@ func NewIncidentService(storage repository.Storage, logger *logrus.Logger) *Inci
 	}
 }
 
-func (is *IncidentService) CreateIncident(req model.Incident) error {
+func (is *IncidentService) CreateIncident(req *model.Incident) error {
 	if req.Title == "" {
 		is.logger.Error("Required incident title in CreateIncident request")
 	}
@@ -28,10 +28,24 @@ func (is *IncidentService) CreateIncident(req model.Incident) error {
 		is.logger.Error("Incident radius need to be positive in CreateIncident request")
 	}
 
-	_, err := is.storage.Create(context.Background(), &req)
+	_, err := is.storage.Create(context.Background(), req)
 	if err != nil {
 		is.logger.Warn("Failed to create incident")
 		return err
 	}
 	return nil
+}
+
+func (is *IncidentService) GetItemsList(page, pageSize int) ([]model.Incident, error) {
+	if page < 0 || pageSize < 0 {
+		is.logger.Error("Invalid pagination parameters")
+	}
+
+	results, err := is.storage.GetList(context.Background(), page, pageSize)
+	if err != nil {
+		is.logger.WithError(err).Info("Error while getting list of incidents")
+		return nil, err
+	}
+
+	return results, nil
 }

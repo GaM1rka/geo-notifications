@@ -140,6 +140,42 @@ func (s *Storage) Create(ctx context.Context, in *model.Incident) (int64, error)
 	return in.ID, nil
 }
 
+func (s *Storage) GetList(ctx context.Context, page, pageSize int) ([]model.Incident, error) {
+	offset := (page - 1) * pageSize
+	query := fmt.Sprintf(`SELECT * FROM incidents
+			LIMIT %d 
+			OFFSET %d`, pageSize, offset)
+	rows, err := s.repo.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []model.Incident
+	for rows.Next() {
+		var in model.Incident
+		if err := rows.Scan(
+			&in.ID,
+			&in.Title,
+			&in.Description,
+			&in.Latitude,
+			&in.Longitude,
+			&in.RadiusM,
+			&in.Active,
+			&in.CreatedAt,
+			&in.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, in)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (s *Storage) Close() error {
 	var errPostgres, errRedis error
 
