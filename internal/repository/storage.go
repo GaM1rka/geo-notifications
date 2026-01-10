@@ -84,7 +84,7 @@ func NewStorage(dbURL string, redisCfg config.RedisConfig) (*Storage, error) {
 }
 
 func (s *Storage) CreateTables(ctx context.Context) error {
-	query := `
+	queryIncidents := `
 CREATE TABLE IF NOT EXISTS incidents (
     id          SERIAL PRIMARY KEY,
     title       TEXT        NOT NULL,
@@ -97,9 +97,21 @@ CREATE TABLE IF NOT EXISTS incidents (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 `
-	_, err := s.repo.db.ExecContext(ctx, query)
+	_, err := s.repo.db.ExecContext(ctx, queryIncidents)
 	if err != nil {
 		return fmt.Errorf("create table incidents: %w", err)
+	}
+
+	queryChecks := `CREATE TABLE IF NOT EXISTS locations_check (
+		user_id SERIAL PRIMARY KEY,
+		latitude DOUBLE PRECISION NOT NULL,
+		longtitude DOUBLE PRECISION NOT NULL,
+		incident_ids []INTEGER,
+	);
+	`
+	_, err = s.repo.db.ExecContext(ctx, queryChecks)
+	if err != nil {
+		return fmt.Errorf("create table locations_check: %w", err)
 	}
 	return nil
 }
