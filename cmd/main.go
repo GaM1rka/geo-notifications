@@ -49,6 +49,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/incidents", h.IncidentsHandler)
 	mux.HandleFunc("/api/v1/incidents/", h.IncidentByIDHandler)
+	mux.HandleFunc("/api/v1/location/check", h.LocationHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",

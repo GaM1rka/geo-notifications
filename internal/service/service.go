@@ -96,3 +96,15 @@ func (is *IncidentService) DeactivateIncident(ctx context.Context, id int64) err
 	}
 	return nil
 }
+
+func (is *IncidentService) CheckLocations(ctx context.Context, req model.LocationRequest) (model.LocationResponse, error) {
+	if req.UserID <= 0 {
+		return model.LocationResponse{}, fmt.Errorf("invalid user_id: %d", req.UserID)
+	}
+	locations, err := is.storage.GetLocations(ctx, req)
+	if err != nil {
+		is.logger.WithError(err).Error("failed to get locations")
+		return model.LocationResponse{}, err
+	}
+	return locations, nil
+}

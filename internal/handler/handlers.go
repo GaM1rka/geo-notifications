@@ -62,6 +62,30 @@ func (h *Handler) IncidentByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) LocationHandler(w http.ResponseWriter, r *http.Request) {
+	var req model.LocationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.WithError(err).Error("invalid request body in LocationHandler")
+		http.Error(w, "ivalid request body to location check", http.StatusBadRequest)
+		return
+	}
+
+	locations, err := h.service.CheckLocations(r.Context(), req)
+	if err != nil {
+		h.logger.WithError(err).Error("error while checking location")
+		http.Error(w, "location check error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(locations); err != nil {
+		h.logger.WithError(err).Error("error while writing response to location check request")
+		http.Error(w, "writing response to location check error", http.StatusInternalServerError)
+		return
+	}
+}
+
 func (h *Handler) CreateIncident(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
