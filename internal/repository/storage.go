@@ -10,6 +10,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
@@ -99,22 +100,24 @@ CREATE TABLE IF NOT EXISTS incidents (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 `
-	_, err := s.repo.db.ExecContext(ctx, queryIncidents)
-	if err != nil {
+	if _, err := s.repo.db.ExecContext(ctx, queryIncidents); err != nil {
 		return fmt.Errorf("create table incidents: %w", err)
 	}
 
-	queryChecks := `CREATE TABLE IF NOT EXISTS locations_check (
-		user_id SERIAL PRIMARY KEY,
-		latitude DOUBLE PRECISION NOT NULL,
-		longtitude DOUBLE PRECISION NOT NULL,
-		incident_ids []INTEGER,
-	);
-	`
-	_, err = s.repo.db.ExecContext(ctx, queryChecks)
-	if err != nil {
+	queryChecks := `
+CREATE TABLE IF NOT EXISTS locations_check (
+    id           SERIAL PRIMARY KEY,
+    user_id      INTEGER      NOT NULL,
+    latitude     DOUBLE PRECISION NOT NULL,
+    longitude    DOUBLE PRECISION NOT NULL,
+    incident_ids INTEGER[]    NOT NULL,
+    checked_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+`
+	if _, err := s.repo.db.ExecContext(ctx, queryChecks); err != nil {
 		return fmt.Errorf("create table locations_check: %w", err)
 	}
+
 	return nil
 }
 
@@ -244,17 +247,17 @@ WHERE id = $1;
 }
 
 func (s *Storage) GetLocations(ctx context.Context, req model.LocationRequest) (model.LocationResponse, error) {
-	query := `SELECT * FROM incidents`
+	query := `SELECT id, title, description, latitude, longitude, radius_m, active, created_at, updated_at FROM incidents`
 	rows, err := s.repo.db.QueryContext(ctx, query)
 	if err != nil {
 		return model.LocationResponse{}, err
 	}
 	defer rows.Close()
 
-	var temp model.LocationResponse
-	temp.UserID = req.UserID
-	temp.Latitude = req.Latitude
-	temp.Longitude = req.Longitude
+	var resp model.LocationResponse
+	resp.UserID = req.UserID
+	resp.Latitude = req.Latitude
+	resp.Longitude = req.Longitude
 
 	for rows.Next() {
 		var in model.Incident
@@ -272,34 +275,43 @@ func (s *Storage) GetLocations(ctx context.Context, req model.LocationRequest) (
 			return model.LocationResponse{}, err
 		}
 
+		if !in.Active {
+			continue
+		}
+
+		// Условная метрика "близости" — сейчас просто манхэттен в градусах.
 		if math.Abs(in.Latitude-req.Latitude)+math.Abs(in.Longitude-req.Longitude) <= float64(in.RadiusM) {
-			temp.LocationsIDS = append(temp.LocationsIDS, in.ID)
+			resp.LocationsIDS = append(resp.LocationsIDS, in.ID)
 		}
 	}
-	if len(temp.LocationsIDS) > 0 {
+
+	if len(resp.LocationsIDS) > 0 {
 		task := model.WebhookPayload{
-			UserID:       temp.UserID,
-			Latitude:     temp.Latitude,
-			Longitude:    temp.Longitude,
-			LocationsIDS: temp.LocationsIDS,
+			UserID:       resp.UserID,
+			Latitude:     resp.Latitude,
+			Longitude:    resp.Longitude,
+			LocationsIDS: resp.LocationsIDS,
 			CheckedAt:    time.Now().UTC(),
 		}
-		err := s.EnqueueWebhookTask(ctx, task)
-		if err != nil {
+		if err := s.EnqueueWebhookTask(ctx, task); err != nil {
 			return model.LocationResponse{}, err
 		}
 	}
 
-	queryAddLocationCheck := `INSERT INTO locations_check (user_id, latitude, longitude, incident_ids) VALUE($1, $2, $3, $4)`
+	insertCheck := `
+INSERT INTO locations_check (user_id, latitude, longitude, incident_ids)
+VALUES ($1, $2, $3, $4);
+`
+	if _, err := s.repo.db.ExecContext(ctx, insertCheck,
+		resp.UserID,
+		resp.Latitude,
+		resp.Longitude,
+		pq.Array(resp.LocationsIDS),
+	); err != nil {
+		return model.LocationResponse{}, err
+	}
 
-	_ = s.repo.db.QueryRowContext(ctx, queryAddLocationCheck,
-		temp.UserID,
-		temp.Latitude,
-		temp.Longitude,
-		temp.LocationsIDS,
-	) // Добавление факта проверки локации в locations_check таблицу
-
-	return temp, nil
+	return resp, nil
 }
 
 func (s *Storage) BLPopWebhookTask(ctx context.Context, timeout time.Duration, key string) (string, error) {
@@ -321,7 +333,7 @@ func (s *Storage) BLPopWebhookTask(ctx context.Context, timeout time.Duration, k
 func (s *Storage) EnqueueWebhookTask(ctx context.Context, task model.WebhookPayload) error {
 	data, err := json.Marshal(task)
 	if err != nil {
-		return fmt.Errorf("marshal webhook tasl: %w", err)
+		return fmt.Errorf("marshal webhook task: %w", err)
 	}
 
 	const queueKey = "webhook_queue"
@@ -331,6 +343,22 @@ func (s *Storage) EnqueueWebhookTask(ctx context.Context, task model.WebhookPayl
 	}
 
 	return nil
+}
+
+func (s *Storage) GetUserCountLastMinutes(ctx context.Context, minutes int) (int, error) {
+	query := `
+SELECT COUNT(DISTINCT user_id) AS user_count
+FROM locations_check
+WHERE checked_at >= NOW() - INTERVAL '%d minutes'
+  AND array_length(incident_ids, 1) > 0;
+`
+	q := fmt.Sprintf(query, minutes)
+
+	var count int
+	if err := s.repo.db.QueryRowContext(ctx, q).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (s *Storage) Close() error {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -25,6 +26,19 @@ func main() {
 	}
 	if redisCfg.Addr == "" {
 		logger.Fatal("REDIS_ADDR is empty")
+	}
+
+	// STATS_TIME_WINDOW_MINUTES
+	statsMinutes := 10
+	if v := os.Getenv("STATS_TIME_WINDOW_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			statsMinutes = n
+		}
+	}
+
+	webhookURL := os.Getenv("WEBHOOK_URL")
+	if webhookURL == "" {
+		logger.Fatal("WEBHOOK_URL is empty")
 	}
 
 	// общий контекст с сигналами
@@ -45,12 +59,13 @@ func main() {
 	incidentService := service.NewIncidentService(storage, logger)
 
 	// init handler
-	h := handler.NewHandler(logger, incidentService)
+	h := handler.NewHandler(logger, incidentService, statsMinutes)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/incidents", h.IncidentsHandler)
 	mux.HandleFunc("/api/v1/incidents/", h.IncidentByIDHandler)
 	mux.HandleFunc("/api/v1/location/check", h.LocationHandler)
+	mux.HandleFunc("/api/v1/incidents/stats", h.IncidentsStatsHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",
@@ -65,7 +80,8 @@ func main() {
 
 	logger.Info("Server started on :8080")
 
-	worker := service.NewWebhookWorker(storage, logger, os.Getenv("WEBHOOK_URL"))
+	// webhook worker
+	worker := service.NewWebhookWorker(storage, logger, webhookURL)
 	go worker.Run(ctx)
 
 	// ждём сигнал
