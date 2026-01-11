@@ -24,3 +24,11 @@ type LocationResponse struct {
 	LocationRequest
 	LocationsIDS []int64 `json:"locations_ids"`
 }
+
+type WebhookPayload struct {
+	UserID       int64     `json:"user_id"`
+	Latitude     float64   `json:"latitude"`
+	Longitude    float64   `json:"longitude"`
+	LocationsIDS []int64   `json:"locations_ids"`
+	CheckedAt    time.Time `json:"checked_at"`
+}

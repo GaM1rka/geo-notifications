@@ -7,6 +7,7 @@ import (
 	"geo-notifications/internal/repository"
 	"geo-notifications/internal/service"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -63,6 +64,9 @@ func main() {
 	}()
 
 	logger.Info("Server started on :8080")
+
+	worker := service.NewWebhookWorker(storage, logger, os.Getenv("WEBHOOK_URL"))
+	go worker.Run(ctx)
 
 	// ждём сигнал
 	<-ctx.Done()
