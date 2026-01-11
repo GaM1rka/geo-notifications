@@ -15,11 +15,32 @@ type IncidentService struct {
 	logger  *logrus.Logger
 }
 
+type HealthError struct {
+	DBError    error
+	RedisError error
+}
+
 func NewIncidentService(storage *repository.Storage, logger *logrus.Logger) *IncidentService {
 	return &IncidentService{
 		storage: storage,
 		logger:  logger,
 	}
+}
+
+func (is *IncidentService) HealthCheck(ctx context.Context) *HealthError {
+	var h HealthError
+
+	if err := is.storage.PingDB(ctx); err != nil {
+		h.DBError = err
+	}
+	if err := is.storage.PingRedis(ctx); err != nil {
+		h.RedisError = err
+	}
+
+	if h.DBError != nil || h.RedisError != nil {
+		return &h
+	}
+	return nil
 }
 
 func (is *IncidentService) CreateIncident(ctx context.Context, req *model.Incident) error {

@@ -361,6 +361,14 @@ WHERE checked_at >= NOW() - INTERVAL '%d minutes'
 	return count, nil
 }
 
+func (s *Storage) PingDB(ctx context.Context) error {
+	return s.repo.db.PingContext(ctx)
+}
+
+func (s *Storage) PingRedis(ctx context.Context) error {
+	return s.cache.cache.Ping(ctx).Err()
+}
+
 func (s *Storage) Close() error {
 	var errPostgres, errRedis error
 
