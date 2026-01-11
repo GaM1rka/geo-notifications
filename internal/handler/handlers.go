@@ -26,6 +26,40 @@ func NewHandler(logger *logrus.Logger, svc *service.IncidentService, statsWindow
 	}
 }
 
+func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	status := "ok"
+	psqlStatus := "ok"
+	redisStatus := "ok"
+
+	if err := h.service.HealthCheck(r.Context()); err != nil {
+		status = "degraded"
+		if err.DBError != nil {
+			psqlStatus = "error"
+		}
+		if err.RedisError != nil {
+			redisStatus = "error"
+		}
+	}
+
+	resp := struct {
+		Status string `json:"status"`
+		DB     string `json:"db"`
+		Redis  string `json:"redis"`
+	}{
+		Status: status,
+		DB:     psqlStatus,
+		Redis:  redisStatus,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func (h *Handler) IncidentsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:

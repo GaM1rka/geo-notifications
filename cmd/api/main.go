@@ -66,6 +66,7 @@ func main() {
 	mux.HandleFunc("/api/v1/incidents/", h.IncidentByIDHandler)
 	mux.HandleFunc("/api/v1/location/check", h.LocationHandler)
 	mux.HandleFunc("/api/v1/incidents/stats", h.IncidentsStatsHandler)
+	mux.HandleFunc("/api/v1/system/health", h.HealthHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",
