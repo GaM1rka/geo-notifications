@@ -7,6 +7,7 @@ import (
 	"geo-notifications/internal/repository"
 	"geo-notifications/internal/service"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -49,6 +50,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/incidents", h.IncidentsHandler)
 	mux.HandleFunc("/api/v1/incidents/", h.IncidentByIDHandler)
+	mux.HandleFunc("/api/v1/location/check", h.LocationHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",
@@ -62,6 +64,9 @@ func main() {
 	}()
 
 	logger.Info("Server started on :8080")
+
+	worker := service.NewWebhookWorker(storage, logger, os.Getenv("WEBHOOK_URL"))
+	go worker.Run(ctx)
 
 	// ждём сигнал
 	<-ctx.Done()

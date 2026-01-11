@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"geo-notifications/internal/config"
 	"geo-notifications/internal/model"
+	"math"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -84,7 +86,7 @@ func NewStorage(dbURL string, redisCfg config.RedisConfig) (*Storage, error) {
 }
 
 func (s *Storage) CreateTables(ctx context.Context) error {
-	query := `
+	queryIncidents := `
 CREATE TABLE IF NOT EXISTS incidents (
     id          SERIAL PRIMARY KEY,
     title       TEXT        NOT NULL,
@@ -97,9 +99,21 @@ CREATE TABLE IF NOT EXISTS incidents (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 `
-	_, err := s.repo.db.ExecContext(ctx, query)
+	_, err := s.repo.db.ExecContext(ctx, queryIncidents)
 	if err != nil {
 		return fmt.Errorf("create table incidents: %w", err)
+	}
+
+	queryChecks := `CREATE TABLE IF NOT EXISTS locations_check (
+		user_id SERIAL PRIMARY KEY,
+		latitude DOUBLE PRECISION NOT NULL,
+		longtitude DOUBLE PRECISION NOT NULL,
+		incident_ids []INTEGER,
+	);
+	`
+	_, err = s.repo.db.ExecContext(ctx, queryChecks)
+	if err != nil {
+		return fmt.Errorf("create table locations_check: %w", err)
 	}
 	return nil
 }
@@ -227,6 +241,96 @@ WHERE id = $1;
 `
 	_, err := s.repo.db.ExecContext(ctx, query, id)
 	return err
+}
+
+func (s *Storage) GetLocations(ctx context.Context, req model.LocationRequest) (model.LocationResponse, error) {
+	query := `SELECT * FROM incidents`
+	rows, err := s.repo.db.QueryContext(ctx, query)
+	if err != nil {
+		return model.LocationResponse{}, err
+	}
+	defer rows.Close()
+
+	var temp model.LocationResponse
+	temp.UserID = req.UserID
+	temp.Latitude = req.Latitude
+	temp.Longitude = req.Longitude
+
+	for rows.Next() {
+		var in model.Incident
+		if err := rows.Scan(
+			&in.ID,
+			&in.Title,
+			&in.Description,
+			&in.Latitude,
+			&in.Longitude,
+			&in.RadiusM,
+			&in.Active,
+			&in.CreatedAt,
+			&in.UpdatedAt,
+		); err != nil {
+			return model.LocationResponse{}, err
+		}
+
+		if math.Abs(in.Latitude-req.Latitude)+math.Abs(in.Longitude-req.Longitude) <= float64(in.RadiusM) {
+			temp.LocationsIDS = append(temp.LocationsIDS, in.ID)
+		}
+	}
+	if len(temp.LocationsIDS) > 0 {
+		task := model.WebhookPayload{
+			UserID:       temp.UserID,
+			Latitude:     temp.Latitude,
+			Longitude:    temp.Longitude,
+			LocationsIDS: temp.LocationsIDS,
+			CheckedAt:    time.Now().UTC(),
+		}
+		err := s.EnqueueWebhookTask(ctx, task)
+		if err != nil {
+			return model.LocationResponse{}, err
+		}
+	}
+
+	queryAddLocationCheck := `INSERT INTO locations_check (user_id, latitude, longitude, incident_ids) VALUE($1, $2, $3, $4)`
+
+	_ = s.repo.db.QueryRowContext(ctx, queryAddLocationCheck,
+		temp.UserID,
+		temp.Latitude,
+		temp.Longitude,
+		temp.LocationsIDS,
+	) // Добавление факта проверки локации в locations_check таблицу
+
+	return temp, nil
+}
+
+func (s *Storage) BLPopWebhookTask(ctx context.Context, timeout time.Duration, key string) (string, error) {
+	res, err := s.cache.cache.BLPop(ctx, timeout, key).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return "", nil
+		}
+		return "", fmt.Errorf("blpop from redis: %w", err)
+	}
+
+	if len(res) != 2 {
+		return "", fmt.Errorf("unexpected BLPop result length: %d", len(res))
+	}
+
+	return res[1], nil
+}
+
+func (s *Storage) EnqueueWebhookTask(ctx context.Context, task model.WebhookPayload) error {
+	data, err := json.Marshal(task)
+	if err != nil {
+		return fmt.Errorf("marshal webhook tasl: %w", err)
+	}
+
+	const queueKey = "webhook_queue"
+
+	if err := s.cache.cache.RPush(ctx, queueKey, data).Err(); err != nil {
+		return fmt.Errorf("rpush webhook task: %w", err)
+	}
+
+	return nil
 }
 
 func (s *Storage) Close() error {
