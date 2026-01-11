@@ -67,6 +67,19 @@ func (is *IncidentService) GetIncidentByID(ctx context.Context, id int64) (*mode
 	return incident, nil
 }
 
+func (is *IncidentService) GetUserStats(ctx context.Context, minutes int) (int, error) {
+	if minutes <= 0 {
+		return 0, fmt.Errorf("invalid stats window: %d", minutes)
+	}
+
+	count, err := is.storage.GetUserCountLastMinutes(ctx, minutes)
+	if err != nil {
+		is.logger.WithError(err).Error("failed to get user stats")
+		return 0, err
+	}
+	return count, nil
+}
+
 func (is *IncidentService) UpdateIncident(ctx context.Context, in *model.Incident) error {
 	if in.ID <= 0 {
 		return fmt.Errorf("invalid id: %d", in.ID)

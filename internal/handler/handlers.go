@@ -13,14 +13,16 @@ import (
 )
 
 type Handler struct {
-	logger  *logrus.Logger
-	service *service.IncidentService
+	logger             *logrus.Logger
+	service            *service.IncidentService
+	statsWindowMinutes int
 }
 
-func NewHandler(logger *logrus.Logger, svc *service.IncidentService) *Handler {
+func NewHandler(logger *logrus.Logger, svc *service.IncidentService, statsWindowMinutes int) *Handler {
 	return &Handler{
-		logger:  logger,
-		service: svc,
+		logger:             logger,
+		service:            svc,
+		statsWindowMinutes: statsWindowMinutes,
 	}
 }
 
@@ -63,10 +65,17 @@ func (h *Handler) IncidentByIDHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) LocationHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	defer r.Body.Close()
+
 	var req model.LocationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.WithError(err).Error("invalid request body in LocationHandler")
-		http.Error(w, "ivalid request body to location check", http.StatusBadRequest)
+		http.Error(w, "invalid request body to location check", http.StatusBadRequest)
 		return
 	}
 
@@ -78,12 +87,36 @@ func (h *Handler) LocationHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(locations); err != nil {
 		h.logger.WithError(err).Error("error while writing response to location check request")
-		http.Error(w, "writing response to location check error", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) IncidentsStatsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	minutes := h.statsWindowMinutes
+
+	count, err := h.service.GetUserStats(r.Context(), minutes)
+	if err != nil {
+		h.logger.WithError(err).Error("failed to get incidents stats")
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	resp := struct {
+		UserCount int `json:"user_count"`
+	}{
+		UserCount: count,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) CreateIncident(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +228,7 @@ func (h *Handler) UpdateIncident(w http.ResponseWriter, r *http.Request, id int6
 	_ = json.NewEncoder(w).Encode(incident)
 }
 
+// DELETE /api/v1/incidents/{id} (деактивация)
 func (h *Handler) DeactivateIncident(w http.ResponseWriter, r *http.Request, id int64) {
 	if err := h.service.DeactivateIncident(r.Context(), id); err != nil {
 		h.logger.WithError(err).Error("error deactivating incident")
