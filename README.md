@@ -17,7 +17,7 @@
 - `internal/service` — бизнес‑логика (`IncidentService`)
 - `internal/repository` — работа с PostgreSQL и Redis
 - `internal/model` — модели данных
-- `cmd/webhook-mock` (или аналогичный пакет) — моковый вебхук‑сервер
+- `cmd/webhook-mock` — моковый вебхук‑сервер
 
 Названия директорий могут отличаться, но логика разделения слоёв примерно такая.
 
