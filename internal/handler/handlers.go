@@ -14,11 +14,11 @@ import (
 
 type Handler struct {
 	logger             *logrus.Logger
-	service            *service.IncidentService
+	service            service.IncidentService // без *
 	statsWindowMinutes int
 }
 
-func NewHandler(logger *logrus.Logger, svc *service.IncidentService, statsWindowMinutes int) *Handler {
+func NewHandler(logger *logrus.Logger, svc service.IncidentService, statsWindowMinutes int) *Handler {
 	return &Handler{
 		logger:             logger,
 		service:            svc,
@@ -72,7 +72,6 @@ func (h *Handler) IncidentsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) IncidentByIDHandler(w http.ResponseWriter, r *http.Request) {
-	// ожидаем путь вида /api/v1/incidents/{id}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 3 {
 		http.NotFound(w, r)
