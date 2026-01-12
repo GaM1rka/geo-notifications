@@ -10,7 +10,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type IncidentService struct {
+type IncidentService interface {
+	HealthCheck(ctx context.Context) *HealthError
+	CreateIncident(ctx context.Context, inc *model.Incident) error
+	GetItemsList(ctx context.Context, page, pageSize int) ([]model.Incident, error)
+	GetIncidentByID(ctx context.Context, id int64) (*model.Incident, error)
+	GetUserStats(ctx context.Context, minutes int) (int, error)
+	UpdateIncident(ctx context.Context, in *model.Incident) error
+	DeactivateIncident(ctx context.Context, id int64) error
+	CheckLocations(ctx context.Context, req model.LocationRequest) (model.LocationResponse, error)
+}
+
+type incidentService struct {
 	storage *repository.Storage
 	logger  *logrus.Logger
 }
@@ -20,14 +31,14 @@ type HealthError struct {
 	RedisError error
 }
 
-func NewIncidentService(storage *repository.Storage, logger *logrus.Logger) *IncidentService {
-	return &IncidentService{
+func NewIncidentService(storage *repository.Storage, logger *logrus.Logger) *incidentService {
+	return &incidentService{
 		storage: storage,
 		logger:  logger,
 	}
 }
 
-func (is *IncidentService) HealthCheck(ctx context.Context) *HealthError {
+func (is *incidentService) HealthCheck(ctx context.Context) *HealthError {
 	var h HealthError
 
 	if err := is.storage.PingDB(ctx); err != nil {
@@ -43,7 +54,7 @@ func (is *IncidentService) HealthCheck(ctx context.Context) *HealthError {
 	return nil
 }
 
-func (is *IncidentService) CreateIncident(ctx context.Context, req *model.Incident) error {
+func (is *incidentService) CreateIncident(ctx context.Context, req *model.Incident) error {
 	if req.Title == "" {
 		return fmt.Errorf("title is required")
 	}
@@ -61,7 +72,7 @@ func (is *IncidentService) CreateIncident(ctx context.Context, req *model.Incide
 	return nil
 }
 
-func (is *IncidentService) GetItemsList(ctx context.Context, page, pageSize int) ([]model.Incident, error) {
+func (is *incidentService) GetItemsList(ctx context.Context, page, pageSize int) ([]model.Incident, error) {
 	if page < 1 || pageSize < 1 {
 		return nil, fmt.Errorf("invalid pagination parameters: page=%d, pageSize=%d", page, pageSize)
 	}
@@ -75,7 +86,7 @@ func (is *IncidentService) GetItemsList(ctx context.Context, page, pageSize int)
 	return results, nil
 }
 
-func (is *IncidentService) GetIncidentByID(ctx context.Context, id int64) (*model.Incident, error) {
+func (is *incidentService) GetIncidentByID(ctx context.Context, id int64) (*model.Incident, error) {
 	if id <= 0 {
 		return nil, fmt.Errorf("invalid id: %d", id)
 	}
@@ -88,7 +99,7 @@ func (is *IncidentService) GetIncidentByID(ctx context.Context, id int64) (*mode
 	return incident, nil
 }
 
-func (is *IncidentService) GetUserStats(ctx context.Context, minutes int) (int, error) {
+func (is *incidentService) GetUserStats(ctx context.Context, minutes int) (int, error) {
 	if minutes <= 0 {
 		return 0, fmt.Errorf("invalid stats window: %d", minutes)
 	}
@@ -101,7 +112,7 @@ func (is *IncidentService) GetUserStats(ctx context.Context, minutes int) (int, 
 	return count, nil
 }
 
-func (is *IncidentService) UpdateIncident(ctx context.Context, in *model.Incident) error {
+func (is *incidentService) UpdateIncident(ctx context.Context, in *model.Incident) error {
 	if in.ID <= 0 {
 		return fmt.Errorf("invalid id: %d", in.ID)
 	}
@@ -119,7 +130,7 @@ func (is *IncidentService) UpdateIncident(ctx context.Context, in *model.Inciden
 	return nil
 }
 
-func (is *IncidentService) DeactivateIncident(ctx context.Context, id int64) error {
+func (is *incidentService) DeactivateIncident(ctx context.Context, id int64) error {
 	if id <= 0 {
 		return fmt.Errorf("invalid id: %d", id)
 	}
@@ -131,7 +142,7 @@ func (is *IncidentService) DeactivateIncident(ctx context.Context, id int64) err
 	return nil
 }
 
-func (is *IncidentService) CheckLocations(ctx context.Context, req model.LocationRequest) (model.LocationResponse, error) {
+func (is *incidentService) CheckLocations(ctx context.Context, req model.LocationRequest) (model.LocationResponse, error) {
 	if req.UserID <= 0 {
 		return model.LocationResponse{}, fmt.Errorf("invalid user_id: %d", req.UserID)
 	}
