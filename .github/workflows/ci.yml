@@ -4,7 +4,7 @@ on:
   push:
     branches: [ dev ]
   pull_request:
-    branches: [ dev ]
+    branches: [ master ]
 
 jobs:
   lint:
@@ -29,3 +29,29 @@ jobs:
         with: 
           go-version: '1.24'
       - run: go test ./... -v -race
+  deploy:
+    runs-on: self-hosted 
+    needs: [lint, test]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Stop services
+      run: docker compose down
+      
+    - name: Build & Start
+      run: docker compose up -d --build
+      
+    - name: Health check
+      run: |
+        echo "Waiting for app startup..."
+        for i in {1..60}; do
+          if curl -f http://localhost:8080/api/v1/system/health; then
+            echo "App healthy!"
+            exit 0
+          fi
+          echo "Wait $i/60..."
+          sleep 5
+        done
+        echo "Timeout!"
+        exit 1
