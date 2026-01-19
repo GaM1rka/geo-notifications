@@ -29,3 +29,20 @@ jobs:
         with: 
           go-version: '1.24'
       - run: go test ./... -v -race
+  deploy:
+    runs-on: self-hosted 
+    needs: [lint, test]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Stop services
+      run: docker-compose down
+      
+    - name: Build & Start
+      run: docker-compose up -d --build
+      
+    - name: Health check
+      run: |
+        sleep 10
+        curl -f http://localhost:8080/health || exit 1
